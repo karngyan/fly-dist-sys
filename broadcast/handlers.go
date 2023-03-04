@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"log"
 	"sync"
+	"time"
 
 	maelstrom "github.com/jepsen-io/maelstrom/demo/go"
 )
@@ -25,15 +26,15 @@ func handlerWithNodeWG(h HandlerFuncWG, n *maelstrom.Node, wg *sync.WaitGroup) m
 
 var data = newStore()
 
+type broadcastReq struct {
+	Message int64  `json:"message"`
+	MsgId   int64  `json:"msg_id"`
+	Type    string `json:"type"`
+}
+
 func broadcastHandler(msg maelstrom.Message, n *maelstrom.Node) error {
 
-	type req struct {
-		Message int64  `json:"message"`
-		MsgId   int64  `json:"msg_id"`
-		Type    string `json:"type"`
-	}
-
-	var body req
+	var body broadcastReq
 
 	var resp struct {
 		Type string `json:"type"`
@@ -43,15 +44,8 @@ func broadcastHandler(msg maelstrom.Message, n *maelstrom.Node) error {
 		return err
 	}
 
-	// if message is not in the store, add it and broadcast it to neighbors
 	if !data.getMByKey(body.Message) {
-		data.addM(body.Message)
-		neighbors := data.getNeighbours()
-		for _, neighbor := range neighbors {
-			if err := n.Send(neighbor, body); err != nil {
-				log.Printf("Error sending message: %s", err)
-			}
-		}
+		go processBroadcastWithRetry(msg, n, body)
 	}
 
 	if body.MsgId == 0 {
@@ -63,9 +57,38 @@ func broadcastHandler(msg maelstrom.Message, n *maelstrom.Node) error {
 	return n.Reply(msg, resp)
 }
 
-func broadcastRPCHandler(msg maelstrom.Message, n *maelstrom.Node, wg *sync.WaitGroup) error {
-	wg.Done()
-	return nil
+func processBroadcastWithRetry(msg maelstrom.Message, n *maelstrom.Node, body broadcastReq) {
+	data.addM(body.Message)
+	neighbors := data.getNeighbors()
+
+	unsent := map[string]bool{}
+	for _, neighbor := range neighbors {
+		unsent[neighbor] = false
+	}
+
+	for {
+		if len(unsent) == 0 {
+			break
+		}
+
+		for _, neighbor := range neighbors {
+			dest := neighbor
+			if dest == msg.Src {
+				// no need to send it back to the sender
+				delete(unsent, dest)
+				continue
+			}
+
+			if err := n.RPC(dest, body, func(resp maelstrom.Message) error {
+				delete(unsent, dest)
+				return nil
+			}); err != nil {
+				log.Printf("Error sending message: %s", err)
+			}
+		}
+
+		time.Sleep(100 * time.Millisecond)
+	}
 }
 
 func readHandler(msg maelstrom.Message, n *maelstrom.Node) error {
@@ -103,7 +126,7 @@ func topologyHandler(msg maelstrom.Message, n *maelstrom.Node) error {
 	resp.Type = "topology_ok"
 	// every node stores its neighbors
 	// no need to store all data
-	data.setNeighbours(body.Topology[n.ID()])
+	data.setNeighbors(body.Topology[n.ID()])
 
 	return n.Reply(msg, resp)
 }

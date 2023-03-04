@@ -38,10 +38,10 @@ func (s *store) getM() []int64 {
 	return r
 }
 
-func (s *store) setNeighbours(v []string) {
+func (s *store) setNeighbors(v []string) {
 	s.neighbors = v
 }
 
-func (s *store) getNeighbours() []string {
+func (s *store) getNeighbors() []string {
 	return s.neighbors
 }
