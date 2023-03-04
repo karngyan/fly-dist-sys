@@ -14,3 +14,7 @@ func GetNodeId(ns string) (int64, error) {
 	}
 	return int64(nid), nil
 }
+
+func IsNodeId(ns string) bool {
+	return strings.HasPrefix(ns, "n")
+}

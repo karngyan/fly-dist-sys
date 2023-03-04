@@ -4,39 +4,44 @@ import "sync"
 
 type store struct {
 	mu sync.RWMutex
-	m  []int64
+	m  map[int64]bool
 
-	tu sync.RWMutex
-	t  map[string][]string
+	neighbors []string
 }
 
 func newStore() *store {
 	return &store{
-		m: []int64{},
-		t: map[string][]string{},
+		m:         map[int64]bool{},
+		neighbors: []string{},
 	}
 }
 
 func (s *store) addM(v int64) {
 	s.mu.Lock()
-	s.m = append(s.m, v)
+	s.m[v] = true
 	s.mu.Unlock()
+}
+
+func (s *store) getMByKey(k int64) bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.m[k]
 }
 
 func (s *store) getM() []int64 {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	return s.m
+	var r []int64
+	for k := range s.m {
+		r = append(r, k)
+	}
+	return r
 }
 
-func (s *store) addT(k string, v []string) {
-	s.tu.Lock()
-	s.t[k] = v
-	s.tu.Unlock()
+func (s *store) setNeighbours(v []string) {
+	s.neighbors = v
 }
 
-func (s *store) getT() map[string][]string {
-	s.tu.RLock()
-	defer s.tu.RUnlock()
-	return s.t
+func (s *store) getNeighbours() []string {
+	return s.neighbors
 }
